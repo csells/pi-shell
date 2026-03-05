@@ -75,7 +75,7 @@ These make pi feel like a real shell. Without them, nobody switches.
 | **Pipelines & redirection** | `|`, `>`, `>>`, `2>&1`, `<()` — parsed and executed locally. |
 | **Job control** | `&`, Ctrl+Z, `fg`, `bg`, `jobs` — background process management. |
 | **Prompt customization** | Starship-compatible or built-in prompt with git status, node version, k8s context, etc. |
-| **cd tracking** | `cd`, `pushd`/`popd`, `cd -` — with pi's working directory staying in sync. |
+| **cd tracking** | `cd`, `pushd`/`popd`, `cd -` — with pi's working directory staying in sync. Intercepts `cd` before it reaches the LLM, updates pi's internal cwd, and refreshes the footer display so the path and git branch always reflect the actual working directory. Today `cd` in an agent is broken-by-design: each `bash()` call runs in a new subprocess, so `cd` evaporates when the subprocess exits. Pi Shell fixes this. |
 
 ### Tier 2 — Agent Superpowers (The Reason to Switch)
 
