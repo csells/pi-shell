@@ -30,34 +30,6 @@ the intelligence of an AI agent when you want it.
 
 ---
 
-## Architecture
-
-Pi Shell is a **pi extension** (`pi-shell`) that:
-
-1. **Intercepts the pi input line** before it reaches the LLM.
-2. **Detects shell-intent** vs. agent-intent using fast, local heuristics.
-3. **Executes shell commands directly** when intent is unambiguous.
-4. **Falls through to the agent** for everything else.
-
-```
-┌─────────────────────────────────────────────┐
-│  Pi TUI Input Line                          │
-│  ┌────────────────────────────────────────┐ │
-│  │ > git log --oneline -5                 │ │  ← keystrokes
-│  └────────────────────────────────────────┘ │
-│         │                                   │
-│         ▼                                   │
-│  ┌──────────────┐   shell?   ┌───────────┐ │
-│  │ Intent Router │──────────▶│ Local Exec │ │  ← fast path (no LLM)
-│  │              │            └───────────┘ │
-│  │              │   agent?   ┌───────────┐ │
-│  │              │──────────▶│ Pi Agent   │ │  ← full agent path
-│  └──────────────┘            └───────────┘ │
-└─────────────────────────────────────────────┘
-```
-
----
-
 ## Feature Set
 
 ### Tier 1 — Shell Parity (Day 1)
@@ -75,7 +47,7 @@ These make pi feel like a real shell. Without them, nobody switches.
 | **Pipelines & redirection** | `|`, `>`, `>>`, `2>&1`, `<()` — parsed and executed locally. |
 | **Job control** | `&`, Ctrl+Z, `fg`, `bg`, `jobs` — background process management. |
 | **Prompt customization** | Starship-compatible or built-in prompt with git status, node version, k8s context, etc. |
-| **cd tracking** | `cd`, `pushd`/`popd`, `cd -` — with pi's working directory staying in sync. Intercepts `cd` before it reaches the LLM, updates pi's internal cwd, and refreshes the footer display so the path and git branch always reflect the actual working directory. Today `cd` in an agent is broken-by-design: each `bash()` call runs in a new subprocess, so `cd` evaporates when the subprocess exits. Pi Shell fixes this. |
+| **cd tracking** | `cd`, `pushd`/`popd`, `cd -` — with pi's working directory and footer display always in sync. Today `cd` in an agent is broken-by-design: each command runs in a new subprocess, so directory changes evaporate. Pi Shell fixes this. |
 
 ### Tier 2 — Agent Superpowers (The Reason to Switch)
 
@@ -137,47 +109,6 @@ AGENT INTENT (send to LLM):
 
 ---
 
-## Implementation as a Pi Extension
-
-```
-pi-shell/
-├── extension.json          # Pi extension manifest
-├── src/
-│   ├── shell.ts            # Main extension entry point
-│   ├── intent-router.ts    # Shell vs. agent intent detection
-│   ├── executor.ts         # Local command execution (PTY-based)
-│   ├── completions/
-│   │   ├── path.ts         # Filesystem path completion
-│   │   ├── command.ts      # Command name completion
-│   │   ├── git.ts          # Git branch/tag/remote completion
-│   │   ├── history.ts      # History-based completion
-│   │   └── smart.ts        # Agent-powered contextual completion
-│   ├── expansion/
-│   │   ├── glob.ts         # Glob expansion
-│   │   ├── env.ts          # Environment variable expansion
-│   │   ├── tilde.ts        # Tilde expansion
-│   │   └── brace.ts        # Brace expansion
-│   ├── history.ts          # Persistent command history
-│   ├── prompt.ts           # Customizable shell prompt
-│   └── jobs.ts             # Background job management
-├── config/
-│   └── default.yaml        # Default shell configuration
-└── README.md
-```
-
-### Extension Hooks
-
-Pi Shell would leverage pi's extension API to:
-
-- **Override input handling** — intercept keystrokes before they reach the agent
-- **Custom TUI rendering** — shell prompt, completion menus, job status
-- **Lifecycle hooks** — `onActivate` starts the shell session, `onDeactivate`
-  cleans up child processes
-- **Tool registration** — register `shell_exec` as a tool the agent can call
-  with awareness of the shell's state (cwd, env, running jobs)
-
----
-
 ## User Experience
 
 ### What It Looks Like
@@ -220,24 +151,20 @@ h7i8j9k chore: upgrade dependencies
 
 ## Open Questions
 
-1. **PTY management** — Should pi-shell spawn a real PTY subprocess, or
-   simulate shell execution via `bash -c`? PTY gives better interactive program
-   support (vim, top, htop) but adds complexity.
-
-2. **Shell compatibility** — Should we aim for POSIX sh compatibility, bash
+1. **Shell compatibility** — Should we aim for POSIX sh compatibility, bash
    compatibility, or define our own shell language? Users will expect their
    `.bashrc`/`.zshrc` aliases to work.
 
-3. **Performance budget** — Tab completion must respond in <50ms. Intent
+2. **Performance budget** — Tab completion must respond in <50ms. Intent
    detection must complete in <10ms. Any slower and it feels broken.
 
-4. **Configuration migration** — Can we import from `.zshrc`, `.bashrc`,
+3. **Configuration migration** — Can we import from `.zshrc`, `.bashrc`,
    Starship config? Or is a clean break better?
 
-5. **Remote shells** — How does this work over SSH? Can pi-shell be the local
+4. **Remote shells** — How does this work over SSH? Can pi-shell be the local
    agent that drives a remote shell session?
 
-6. **Windows support** — PowerShell compatibility? WSL-first?
+5. **Windows support** — PowerShell compatibility? WSL-first?
 
 ---
 
