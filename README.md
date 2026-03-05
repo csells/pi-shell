@@ -1,44 +1,44 @@
 # Pi Shell
 
-**The AI agent that *is* your shell.**
+**A real shell inside [pi](https://github.com/badlogic/pi-mono).**
 
-Pi Shell is a [pi](https://github.com/badlogic/pi-mono) extension that makes pi a first-class interactive shell — instant for shell commands, intelligent for natural language, seamless in between.
+Pi Shell is a pi extension that makes `!` and `!!` commands behave like a real shell — tab completion, directory tracking, aliases, and all the ergonomics developers expect.
 
 ## The Problem
 
-Today's AI-powered CLI tools all sit *on top of* or *beside* a traditional shell. They translate natural language into commands, suggest completions via hotkeys, or pipe output through an LLM. But none of them **replace** the shell itself.
+Pi's `!` mode is barely a shell. No tab completion. No aliases. `!cd src` doesn't actually change directory — each command runs in a fresh subprocess, so directory changes evaporate. You end up alt-tabbing to a real terminal for anything beyond the simplest commands.
 
-Meanwhile, developers already live inside agents like pi for hours at a time, typing commands like `cd ..`, `git remote -v`, and `ls` — and the agent dutifully wraps them in `bash()` calls. We're effectively using pi as a shell already, just a very expensive, high-latency one with no completions.
+## What Pi Shell Does
 
-Pi Shell closes that gap.
+Install the extension, and `!`/`!!` become a proper shell:
 
-## Core Principle
+| Before (pi today) | After (with pi-shell) |
+|---|---|
+| `!cd src` does nothing useful | `!cd src` changes cwd, footer updates |
+| `!ls` then Tab → nothing | `!ls` then Tab → path completions |
+| `!git ch` then Tab → nothing | `!git ch` then Tab → `checkout` |
+| Aliases don't work in `!` | Your shell aliases work |
+| Alt-tab for real shell work | Stay in pi |
 
-> **Shell-first, agent-second.**
->
-> Typing `ls` should feel instant and local — not round-trip through an LLM. But typing `"find all the test files that import the auth module"` should seamlessly engage the agent. The user never has to switch modes.
+## How It Works
 
-## Features (Planned)
+- **No prefix** — talk to the agent (unchanged)
+- **`!command`** — real shell with completions, output in LLM context
+- **`!!command`** — real shell with completions, output excluded from LLM context
 
-### Shell Parity
-- Tab completion (paths, commands, git branches)
-- Glob, environment variable, and tilde expansion
-- Pipelines and redirection (`|`, `>`, `>>`, `&&`, `||`)
-- Persistent, searchable command history
-- Aliases and shell functions
-- Job control (`&`, Ctrl+Z, `fg`, `bg`)
-- Customizable prompt with git status
+Pi Shell enhances the existing `!`/`!!` mechanism. It doesn't change how pi works — it just makes the shell parts actually good.
 
-### Agent Superpowers
-- **Natural language fallback** — if input doesn't parse as a command, ask the agent
-- **Explain mode** — `?? awk '{print $3}'` explains the command inline
-- **Fix-on-fail** — command fails? Agent offers to diagnose and fix
-- **Smart history** — `"that curl command from yesterday"` searches semantically
-- **Pipeline builder** — `"get the top 10 largest node_modules"` builds and shows a pipeline
+## Features
+
+- **Tab completion** — paths, commands, git branches
+- **cd tracking** — `!cd` updates pi's working directory and footer
+- **Aliases** — imports your existing shell aliases automatically
+- **Command history** — persistent, searchable with Ctrl+R
+- **Shell expansions** — globs, env vars, tilde, braces
 
 ## Status
 
-🚧 **Early design phase** — see [specs/vision.md](specs/vision.md) for the full design document.
+🚧 **Early design phase** — see [specs/](specs/) for design documents.
 
 ## License
 

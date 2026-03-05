@@ -1,37 +1,96 @@
 # Pi Shell: Requirements
 
 Technical requirements for implementing pi-shell as a pi extension. Covers the
-pi extension API surface needed, gaps to address, activation model, and
-implementation structure.
+pi extension API surface, resolved design questions, and implementation
+structure.
 
 ---
 
-## Activation Model: `--shell` Flag
+## Design Decisions
 
-Pi supports custom CLI flags via `pi.registerFlag()`. Pi Shell registers a
-`--shell` flag:
+### Activation
 
-```
-pi --shell     # Full shell mode
-pi             # Normal pi (with lightweight shell fixes)
-```
+Pi-shell is a pi extension (package). Install it, and `!`/`!!` become a real
+shell. No CLI flag. No mode switching. The extension enhances pi's existing bash
+command behavior.
 
-### Behavior Matrix
+### LLM Context
 
-| Behavior | Without `--shell` | With `--shell` |
+Same as pi today — no changes:
+- `!command` → output included in LLM context
+- `!!command` → output excluded from LLM context
+- No prefix → talk to the agent
+
+### Alias Import
+
+Import the user's existing shell aliases at startup by running
+`$SHELL -ic 'alias'`. This captures aliases from `.bashrc`, `.zshrc`, or
+whatever shell the user has configured. No separate pi-shell alias config
+needed.
+
+---
+
+## Resolved Questions
+
+### Shell Compatibility
+
+**Decision:** Don't reimplement a shell. Use `bash -c` (or `$SHELL -c`) for
+command execution, which means the user's real shell handles all syntax —
+pipelines, redirects, expansion, etc. Pi-shell only needs to:
+
+- Parse enough to detect `cd` and handle it specially
+- Provide tab completion (filesystem, commands, git)
+- Import aliases from the user's shell
+
+This avoids the impossible task of reimplementing bash/zsh and guarantees
+compatibility with the user's existing shell config.
+
+**Dependencies:**
+- `shell-quote` (npm, maintained, 1.8.3) — parse and quote shell commands
+  for safe argument handling
+- No full shell parser needed since actual execution delegates to `$SHELL`
+
+### Performance Budget
+
+| Operation | Target | Approach |
 |---|---|---|
-| `cd dir` | Intercept, update cwd + footer | Same |
-| `ls`, `git status` | Pass to agent as normal | Execute locally, skip LLM |
-| `"find test files"` | Pass to agent | Pass to agent |
-| Tab completion | Pi's default | Shell-style (paths, commands, branches) |
-| Prompt | Pi's default | Custom shell prompt (`~/proj (main) λ`) |
-| History | Pi's session history | Separate shell history + Ctrl+R |
-| Job control | Not available | `&`, Ctrl+Z, `fg`, `bg` |
+| Tab completion | <50ms | Filesystem reads are ~1-5ms. Cache `$PATH` command list at startup. Git branches via `git branch --list`. |
+| Intent detection | N/A | No intent detection. `!` prefix is explicit. |
+| Alias import | Startup only | Run `$SHELL -ic 'alias'` once on session start, parse output. |
+| `cd` handling | <5ms | `process.chdir()` + `setStatus()` + override bash tool cwd. |
 
-**Rationale:** Even without the flag, `cd` should work because it's
-broken-by-design in every agent today. The flag opts into the full shell
-experience. This enables progressive adoption — install the extension, get `cd`
-fixed for free, opt into shell mode when ready.
+### Configuration Migration
+
+**Decision:** Don't parse config files. Import aliases by running the user's
+shell interactively (`$SHELL -ic 'alias'`), which sources their config naturally.
+This works regardless of shell (bash, zsh, fish) without needing to parse
+shell-specific config formats.
+
+Starship prompt support is out of scope for v1. Pi's footer already shows
+cwd and git branch.
+
+### Remote Shells
+
+**Decision:** Out of scope for v1. Pi already has an SSH extension example
+(`ssh.ts`) that overrides tool operations for remote execution. Pi-shell's `cd`
+tracking and tab completion are inherently local. Remote support can layer on
+top later.
+
+### Windows Support
+
+**Decision:** Out of scope for v1. Pi runs on macOS and Linux. WSL users
+already have a Unix shell. Native PowerShell support is a different product.
+
+### PTY vs. `bash -c`
+
+**Decision:** Use `$SHELL -c` for command execution. Pi already does this for
+`!` commands. PTY adds complexity for minimal benefit in `!` mode — interactive
+programs (vim, htop) are already handled by pi's `interactive-shell.ts` extension
+pattern using `tui.stop()/start()`.
+
+If interactive program support is needed in `!` mode, it can be added later
+using the same pattern: detect the command (vim, htop, etc.), suspend TUI,
+spawn with inherited stdio, resume on exit.
 
 ---
 
@@ -39,41 +98,68 @@ fixed for free, opt into shell mode when ready.
 
 ### Available — Core Building Blocks
 
-| Requirement | Pi API | How It's Used |
+| Requirement | Pi API | Usage |
 |---|---|---|
-| `--shell` flag | `pi.registerFlag()` | Opt-in shell mode |
-| Intercept all input | `pi.on("input", ...)` | Intent router: return `"handled"` for shell commands, `"continue"` for agent |
-| Intercept `!` commands | `pi.on("user_bash", ...)` | Interactive programs (vim, htop) — `interactive-shell.ts` example does this |
-| Custom editor | `ctx.ui.setEditorComponent()` | Tab completion, history nav, shell keybindings — full keystroke control |
-| Footer cwd/status | `ctx.ui.setStatus()` | Update cwd + git branch on every `cd` |
-| Replace footer entirely | `ctx.ui.setFooter()` | Full shell-style footer |
-| Keyboard shortcuts | `pi.registerShortcut()` | Ctrl+R (history search), Ctrl+Z (job control) |
-| Execute commands | `pi.exec()` | Run shell commands from the extension |
-| Shell builtins | `pi.registerCommand()` | `/alias`, `/history`, `/export` as pi commands |
-| Custom output rendering | `pi.registerTool()` + `renderResult` | Syntax-highlighted `cat`, colored `ls` |
-| Terminal title | `ctx.ui.setTitle()` | Update with cwd like a real terminal |
-| Widgets | `ctx.ui.setWidget()` | Job status bar, completion candidates |
-| Interactive programs | `ctx.ui.custom()` + `tui.stop()/start()` | Suspend TUI, hand terminal to vim/htop, resume |
-| Persist state | `pi.appendEntry()` | Shell history, aliases, env vars across sessions |
-| System prompt injection | `pi.on("before_agent_start", ...)` | Tell the LLM about current shell state (cwd, env, running jobs) |
-| Tool control | `pi.setActiveTools()` | Adjust available tools based on shell mode |
+| Intercept `!`/`!!` commands | `pi.on("user_bash", ...)` | Detect `cd`, provide shell execution with alias support |
+| Custom editor for completions | `ctx.ui.setEditorComponent()` | Replace default editor with shell-aware editor that provides tab completions when input starts with `!` |
+| Footer cwd update | `ctx.ui.setStatus()` | Update cwd + git branch after every `cd` |
+| Terminal title | `ctx.ui.setTitle()` | Reflect current cwd |
+| Keyboard shortcuts | `pi.registerShortcut()` | Ctrl+R for shell history search |
+| Execute commands | `pi.exec()` | Run shell commands, alias import |
+| Persist state | `pi.appendEntry()` | Shell history across sessions |
+| System prompt injection | `pi.on("before_agent_start", ...)` | Tell LLM about current cwd, env, recent shell output |
+| Override bash tool | `pi.registerTool()` (same name) | Override built-in `bash` tool to use dynamic cwd |
+| Session init | `pi.on("session_start", ...)` | Import aliases, restore shell history, set up editor |
+| Cleanup | `pi.on("session_shutdown", ...)` | Save shell history |
+| Bash tool override | `createBashTool()` + `spawnHook` | Inject dynamic cwd and alias sourcing into LLM bash calls |
+| Interactive programs | `pi.on("user_bash", ...)` + `ctx.ui.custom()` | Detect vim/htop, suspend TUI, hand over terminal |
+| Widgets | `ctx.ui.setWidget()` | Show completion candidates if needed |
 
-### Needs Investigation
+### CWD Tracking — The Key Technical Challenge
 
-| Requirement | Gap | Possible Workaround |
-|---|---|---|
-| Set pi's cwd | `ctx.cwd` is read-only, no `setCwd()` API | `process.chdir()` may work but bypasses pi's internal tracking |
-| Environment persistence | Each `bash()` spawns a new subprocess | Manage env vars in memory, inject via `pi.exec()` env option or `bash -c 'export ...; cmd'` |
-| Tab completion UI | No built-in completion dropdown API | `setEditorComponent()` gives full keystroke control — implement completion rendering in the custom editor |
-| Background job management | No process lifecycle API in pi | Extension spawns/tracks child processes directly, display via `setWidget()` |
-| Pipeline parsing | No shell parser built-in | Bring a dependency (`shell-quote`, `bash-parser`) or write a lightweight parser |
+Pi has **no `cd` detection and no `setCwd()` API**. The bash tool captures `cwd`
+once at creation time via `createBashTool(cwd)` and never changes it. Pi's
+internal `_cwd` is set once at startup and is read-only.
 
-### Likely Needs Pi Upstream Changes
+**Solution (no upstream changes needed):**
 
-| Requirement | Why |
-|---|---|
-| **`setCwd(path)`** | The single most critical missing API. Without it, `cd` can't update pi's working directory for subsequent bash tool calls and footer display. `process.chdir()` might work but feels hacky and may not update pi's internal state. |
-| **Editor completion popup** | `setEditorComponent()` gives keystroke control, but rendering a dropdown *above* the editor may need overlay support or a new widget placement option. |
+1. **Intercept `cd` in `user_bash` event** — Detect `cd` commands, resolve the
+   target directory, call `process.chdir(newDir)`. This works because pi's
+   `!` execution uses `process.cwd()` for the working directory.
+
+2. **Override the `bash` tool** — Register a replacement bash tool that uses
+   `process.cwd()` dynamically instead of the captured cwd. This ensures
+   LLM-invoked `bash()` calls also use the updated directory. Use the
+   `createBashTool()` + `spawnHook` pattern from `bash-spawn-hook.ts`.
+
+3. **Update the footer** — Call `ctx.ui.setStatus()` after every `cd` to
+   refresh the displayed path and git branch.
+
+4. **Update terminal title** — Call `ctx.ui.setTitle()` with the new cwd.
+
+**Verification:** `process.chdir()` works in Node.js and affects all subsequent
+`process.cwd()` calls. Pi's user bash execution (`handleBashCommand`) already
+uses `process.cwd()` as the cwd. The bash tool override ensures the LLM's
+bash calls also pick up the change.
+
+### Tab Completion in `!` Mode
+
+Pi's editor already detects `!` prefix and sets `isBashMode`. The extension
+replaces the editor via `ctx.ui.setEditorComponent()` with a `CustomEditor`
+subclass that:
+
+1. Detects when input starts with `!` or `!!`
+2. On Tab keypress in bash mode, triggers completion:
+   - Parse the current input to find the word being completed
+   - Complete paths (readdir), commands ($PATH cache), git branches
+3. Renders completions inline (fish-style ghost text) or as a selection list
+
+**Completion sources (in priority order):**
+1. **Paths** — `fs.readdir()` relative to cwd. Fast (<5ms).
+2. **Commands** — Scan `$PATH` directories at startup, cache the list.
+3. **Git refs** — `git branch --list`, `git tag --list`. Cache and refresh on cd.
+4. **Aliases** — From the imported alias list.
+5. **History** — Match against shell command history.
 
 ---
 
@@ -83,24 +169,12 @@ fixed for free, opt into shell mode when ready.
 pi-shell/
 ├── package.json            # Pi package manifest with `pi.extensions`
 ├── src/
-│   ├── index.ts            # Extension entry point — registerFlag, events, setup
-│   ├── intent-router.ts    # Shell vs. agent intent detection (heuristics)
-│   ├── executor.ts         # Local command execution (PTY or bash -c)
-│   ├── completions/
-│   │   ├── path.ts         # Filesystem path completion
-│   │   ├── command.ts      # Command name completion ($PATH scan)
-│   │   ├── git.ts          # Git branch/tag/remote completion
-│   │   ├── history.ts      # History-based completion
-│   │   └── smart.ts        # Agent-powered contextual completion (Tier 2)
-│   ├── expansion/
-│   │   ├── glob.ts         # Glob expansion
-│   │   ├── env.ts          # Environment variable expansion
-│   │   ├── tilde.ts        # Tilde expansion
-│   │   └── brace.ts        # Brace expansion
-│   ├── editor.ts           # Custom editor (extends CustomEditor) for shell keybindings
-│   ├── history.ts          # Persistent command history
-│   ├── prompt.ts           # Shell prompt rendering (footer + title)
-│   └── jobs.ts             # Background job management
+│   ├── index.ts            # Extension entry — events, editor, bash override
+│   ├── cd.ts               # cd detection, process.chdir, footer/title update
+│   ├── completions.ts      # Tab completion (paths, commands, git, aliases)
+│   ├── aliases.ts          # Import aliases from $SHELL
+│   ├── history.ts          # Shell command history (persist via appendEntry)
+│   └── editor.ts           # CustomEditor subclass with bash-mode completions
 └── README.md
 ```
 
@@ -108,43 +182,25 @@ pi-shell/
 
 | Pi Hook | Pi Shell Usage |
 |---|---|
-| `pi.registerFlag("shell", ...)` | Enable full shell mode via `--shell` |
-| `pi.on("session_start", ...)` | Initialize shell state, restore history/aliases/env, set up editor |
-| `pi.on("input", ...)` | Intent router — detect shell vs. agent, execute shell commands directly |
-| `pi.on("user_bash", ...)` | Detect interactive programs (vim, htop), suspend TUI and hand over terminal |
-| `pi.on("before_agent_start", ...)` | Inject shell context (cwd, env, running jobs) into system prompt |
-| `pi.on("session_shutdown", ...)` | Clean up child processes, save history, flush state |
-| `ctx.ui.setEditorComponent(...)` | Replace default editor with shell-aware editor (tab completion, history nav) |
-| `ctx.ui.setFooter(...)` | Shell-style footer with cwd, git branch, prompt character |
-| `ctx.ui.setTitle(...)` | Terminal title reflecting cwd |
-| `ctx.ui.setWidget(...)` | Job status, completion candidates |
-| `pi.registerShortcut(...)` | Ctrl+R (history search), Ctrl+Z (suspend foreground job) |
-| `pi.appendEntry(...)` | Persist shell history and aliases across sessions |
+| `pi.on("session_start", ...)` | Import aliases, restore history, cache $PATH commands, set up custom editor |
+| `pi.on("user_bash", ...)` | Intercept `cd` → update cwd/footer/title. Source aliases before other commands. |
+| `pi.on("session_shutdown", ...)` | Save shell history |
+| `pi.on("before_agent_start", ...)` | Inject current cwd into agent context |
+| `pi.registerTool("bash", ...)` | Override built-in bash tool to use dynamic `process.cwd()` |
+| `ctx.ui.setEditorComponent(...)` | Custom editor with tab completion in `!` mode |
+| `ctx.ui.setStatus(...)` | Update footer with cwd + git branch after cd |
+| `ctx.ui.setTitle(...)` | Update terminal title with cwd |
+| `pi.appendEntry(...)` | Persist shell history across sessions |
 
-### PTY vs. `bash -c`
+### Key Existing Examples
 
-Two execution strategies for shell commands:
+Pi extension examples that demonstrate the patterns pi-shell needs:
 
-| Approach | Pros | Cons |
-|---|---|---|
-| `bash -c "command"` via `pi.exec()` | Simple, no dependency, good enough for most commands | No interactive program support, no job control |
-| Spawn a real PTY | Full interactive support (vim, htop), proper job control, signal handling | Complex, platform-specific, resource overhead |
-
-**Recommendation:** Start with `bash -c` for Tier 1. Add PTY for interactive
-programs using the `tui.stop()/start()` pattern from `interactive-shell.ts`.
-
----
-
-## Key Existing Examples
-
-These pi extension examples demonstrate patterns pi-shell will use:
-
-| Example | Relevant Pattern |
+| Example | Pattern |
 |---|---|
-| `interactive-shell.ts` | Persistent shell session, `user_bash` event handling |
-| `input-transform.ts` | `input` event — intercept, transform, or handle user input |
-| `modal-editor.ts` | `CustomEditor` subclass with custom keybindings and mode indicator |
-| `ssh.ts` | `registerFlag()` for custom CLI flags, tool operation overrides |
-| `plan-mode/` | Complex extension with flag, status, widget, shortcuts, message injection |
-| `status-line.ts` | Footer status updates |
-| `custom-footer.ts` | Full footer replacement |
+| `interactive-shell.ts` | `user_bash` event, interactive program detection, TUI suspend/resume |
+| `bash-spawn-hook.ts` | Override bash tool with `createBashTool()` + `spawnHook` for dynamic cwd |
+| `modal-editor.ts` | `CustomEditor` subclass with mode detection and custom keybindings |
+| `input-transform.ts` | `input` event for intercepting and transforming user input |
+| `status-line.ts` | Footer status updates via `setStatus()` |
+| `tool-override.ts` | Override built-in tools by registering with the same name |
