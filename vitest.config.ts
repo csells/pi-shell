@@ -2,8 +2,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    // Run tests serially in the main thread to allow process.chdir()
-    threads: false,
+    // Disable worker threads to allow process.chdir()
+    pool: "forks",
     globals: true,
     environment: "node",
   },

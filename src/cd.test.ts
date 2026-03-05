@@ -124,7 +124,8 @@ describe("cd module", () => {
 
       const result = resolveCD("cd subdir", state);
       expect(result.success).toBe(true);
-      expect(result.newCwd).toBe(subdir);
+      // Use realpath to normalize symlinks (handles /private/ on macOS)
+      expect(fs.realpathSync(result.newCwd!)).toBe(fs.realpathSync(subdir));
     });
 
     it("resolves absolute paths", () => {
@@ -178,7 +179,8 @@ describe("cd module", () => {
 
       const result = resolveCD("pushd subdir", state);
       expect(result.success).toBe(true);
-      expect(result.newCwd).toBe(subdir);
+      // Use realpath to normalize symlinks (handles /private/ on macOS)
+      expect(fs.realpathSync(result.newCwd!)).toBe(fs.realpathSync(subdir));
     });
   });
 
@@ -247,7 +249,8 @@ describe("cd module", () => {
       fs.writeFileSync(headPath, "abc1234567890def\n");
 
       const result = getGitBranch(tempDir);
-      expect(result).toBe("abc12345");
+      // Returns first 7 chars of SHA
+      expect(result).toBe("abc1234");
     });
 
     it("walks up to find .git in parent directory", () => {
