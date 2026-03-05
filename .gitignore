@@ -1,6 +1,12 @@
 node_modules/
+dist/
 .env
 .env.*
 *.local
-dist/
 .DS_Store
+
+# pi agent state (per-session, not project config)
+.pi/
+
+# lock files (no runtime deps to lock)
+package-lock.json
