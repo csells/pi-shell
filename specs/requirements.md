@@ -28,6 +28,65 @@ Import the user's existing shell aliases at startup by running
 whatever shell the user has configured. No separate pi-shell alias config
 needed.
 
+### Shell Expansions (Globs, Env Vars, Tilde, Pipelines)
+
+No special implementation needed. Since pi-shell delegates execution to
+`$SHELL -c`, the user's shell handles all expansion and syntax natively:
+globs (`*.py`), environment variables (`$HOME`), tilde (`~/`), brace expansion
+(`{a,b}`), pipelines (`|`), and redirection (`>`, `>>`).
+
+### Explain Mode (`??`)
+
+`?? command` asks the agent to explain a command. Implementation:
+
+- Intercept via `pi.on("user_bash", ...)` — detect `??` prefix (pi delivers
+  `user_bash` with the `!` stripped, so `!!?? cmd` would arrive as `?? cmd`)
+- Return `{ result: ... }` to prevent execution
+- Inject a user message via `pi.sendUserMessage()` asking the agent to explain
+  the command: `"Explain this shell command: <command>"`
+- The agent responds with an explanation using its normal context
+
+Alternatively, detect `??` in the `input` event (before `!` parsing) and
+transform it into an agent prompt directly.
+
+### Fix-on-Fail
+
+When a `!` command returns non-zero, offer to let the agent diagnose it.
+
+- In the `user_bash` handler, after execution completes with a non-zero exit
+  code, use `ctx.ui.confirm()` to ask "Command failed (exit N). Ask the agent
+  to diagnose?"
+- If confirmed, inject the command and error output into the agent via
+  `pi.sendUserMessage()` with a prompt like: "This command failed with exit
+  code N: `<command>`. Output: `<output>`. Diagnose the error and suggest a
+  fix."
+- If declined, do nothing — normal pi behavior
+
+### Smart History
+
+Agent-powered semantic search through shell command history.
+
+- Shell history is persisted via `pi.appendEntry()` (see History section)
+- When the user types something like `"that curl command from yesterday"` (no
+  `!` prefix), the agent handles it naturally — if the history is in the
+  session context, the agent can find it
+- For explicit search: `pi.registerCommand("history", ...)` provides a
+  `/history` command that shows history with filtering
+- Semantic search over history is a stretch goal — requires embedding or
+  agent-assisted search
+
+### Inline File Preview
+
+Syntax-highlighted output for `!cat` and `!less`.
+
+- Intercept `cat` and `less` commands in `user_bash`
+- Read the file contents using `fs.readFile()`
+- Apply syntax highlighting via pi's `highlightCode()` and
+  `getLanguageFromPath()` utilities (exported from `@mariozechner/pi-coding-agent`)
+- Return the highlighted output as the command result
+- For `less`, use the `interactive-shell.ts` pattern (TUI suspend, spawn less
+  with stdio inherit) since it's an interactive pager
+
 ---
 
 ## Resolved Questions
@@ -174,7 +233,9 @@ pi-shell/
 │   ├── completions.ts      # Tab completion (paths, commands, git, aliases)
 │   ├── aliases.ts          # Import aliases from $SHELL
 │   ├── history.ts          # Shell command history (persist via appendEntry)
-│   └── editor.ts           # CustomEditor subclass with bash-mode completions
+│   ├── editor.ts           # CustomEditor subclass with bash-mode completions
+│   ├── explain.ts          # ?? explain mode — hand command to agent
+│   └── fix-on-fail.ts      # Non-zero exit → offer agent diagnosis
 └── README.md
 ```
 
@@ -183,13 +244,16 @@ pi-shell/
 | Pi Hook | Pi Shell Usage |
 |---|---|
 | `pi.on("session_start", ...)` | Import aliases, restore history, cache $PATH commands, set up custom editor |
-| `pi.on("user_bash", ...)` | Intercept `cd` → update cwd/footer/title. Source aliases before other commands. |
+| `pi.on("user_bash", ...)` | Intercept `cd`, `??`, `cat`/`less`. Source aliases. Detect non-zero exit for fix-on-fail. |
 | `pi.on("session_shutdown", ...)` | Save shell history |
 | `pi.on("before_agent_start", ...)` | Inject current cwd into agent context |
 | `pi.registerTool("bash", ...)` | Override built-in bash tool to use dynamic `process.cwd()` |
+| `pi.registerCommand("history", ...)` | Shell history search and display |
+| `pi.sendUserMessage(...)` | Inject explain/fix-on-fail prompts into agent |
 | `ctx.ui.setEditorComponent(...)` | Custom editor with tab completion in `!` mode |
 | `ctx.ui.setStatus(...)` | Update footer with cwd + git branch after cd |
 | `ctx.ui.setTitle(...)` | Update terminal title with cwd |
+| `ctx.ui.confirm(...)` | Fix-on-fail confirmation dialog |
 | `pi.appendEntry(...)` | Persist shell history across sessions |
 
 ### Key Existing Examples
