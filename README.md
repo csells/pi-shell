@@ -30,15 +30,23 @@ Pi Shell enhances the existing `!`/`!!` mechanism. It doesn't change how pi work
 
 ## Features
 
-- **Tab completion** — paths, commands, git branches
+- **Tab completion** — paths, commands, git branches, aliases
 - **cd tracking** — `!cd` updates pi's working directory and footer
 - **Aliases** — imports your existing shell aliases automatically
 - **Command history** — persistent, searchable with Ctrl+R
-- **Shell expansions** — globs, env vars, tilde, braces
+- **Explain mode** — `!?? command` asks the agent to explain it
+- **Fix-on-fail** — failed command? Agent offers to diagnose
+- **Syntax highlighting** — `!cat file.ts` with highlighted output
+
+## Design
+
+- [specs/vision.md](specs/vision.md) — what and why
+- [specs/requirements.md](specs/requirements.md) — feature requirements and resolved design questions
+- [specs/design.md](specs/design.md) — technical design with verified pi API mappings and module blueprints
 
 ## Status
 
-🚧 **Early design phase** — see [specs/](specs/) for design documents.
+🚧 **Design phase** — specs complete, implementation next.
 
 ## License
 
