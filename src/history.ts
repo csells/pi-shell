@@ -1,5 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { ReadonlySessionManager } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 export const MAX_HISTORY = 1000;
 export const HISTORY_ENTRY_TYPE = "pi-shell-history";
@@ -10,7 +9,7 @@ export const HISTORY_ENTRY_TYPE = "pi-shell-history";
  * most recent, and caps at MAX_HISTORY.
  */
 export function restoreHistory(
-  sessionManager: ReadonlySessionManager,
+  sessionManager: ExtensionContext["sessionManager"],
 ): string[] {
   const commands: string[] = [];
 
@@ -18,9 +17,9 @@ export function restoreHistory(
     if (
       entry.type === "custom" &&
       entry.customType === HISTORY_ENTRY_TYPE &&
-      Array.isArray(entry.data?.commands)
+      Array.isArray((entry.data as Record<string, unknown>)?.commands)
     ) {
-      commands.push(...entry.data.commands);
+      commands.push(...(entry.data as { commands: string[] }).commands);
     }
   }
 

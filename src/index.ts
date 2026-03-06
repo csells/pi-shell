@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { createBashTool } from "@mariozechner/pi-coding-agent";
 import { importAliases } from "./aliases.js";
 import { resolveCD, isCdCommand, formatCwd, getGitBranch, type CdState } from "./cd.js";
-import { ShellAutocompleteProvider, scanPathCommands, getGitBranches, getGitSubcommands } from "./completions.js";
+import { ShellAutocompleteProvider } from "./completions.js";
 import { ShellEditor } from "./editor.js";
 import { restoreHistory, saveHistory } from "./history.js";
 import { handleExplain } from "./explain.js";
@@ -11,9 +11,6 @@ import { offerFixOnFail } from "./fix-on-fail.js";
 
 interface SharedState extends CdState {
   aliases: Map<string, string>;
-  pathCommands: Set<string>;
-  gitBranches: string[];
-  gitSubcommands: string[];
   history: string[];
 }
 
@@ -24,9 +21,6 @@ interface SharedState extends CdState {
 export default function piShell(pi: ExtensionAPI) {
   const state: SharedState = {
     aliases: new Map(),
-    pathCommands: new Set(),
-    gitBranches: [],
-    gitSubcommands: [],
     history: [],
     dirStack: [],
     oldpwd: process.cwd(),
@@ -46,17 +40,14 @@ export default function piShell(pi: ExtensionAPI) {
   // Reference to the active editor for history wiring
   let activeEditor: ShellEditor | undefined;
 
-  // --- session_start: initialize caches and install custom editor ---
+  // --- session_start: initialize and install custom editor ---
   pi.on("session_start", async (_event, ctx) => {
     state.aliases = importAliases();
-    state.pathCommands = scanPathCommands();
-    state.gitBranches = getGitBranches();
-    state.gitSubcommands = getGitSubcommands();
     state.history = restoreHistory(ctx.sessionManager);
 
     // Install custom editor — factory receives tui, theme, keybindings
     if (ctx.hasUI) {
-      const shellProvider = new ShellAutocompleteProvider(state);
+      const shellProvider = new ShellAutocompleteProvider();
       ctx.ui.setEditorComponent((tui, theme, keybindings) => {
         const editor = new ShellEditor(tui, theme, keybindings, shellProvider);
         activeEditor = editor;
@@ -107,9 +98,6 @@ export default function piShell(pi: ExtensionAPI) {
 
       state.oldpwd = process.cwd();
       process.chdir(cdResult.newCwd!);
-
-      // Refresh git caches for new directory
-      state.gitBranches = getGitBranches();
 
       if (ctx.hasUI) {
         updateFooter(ctx);

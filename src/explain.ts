@@ -1,4 +1,5 @@
-import type { ExtensionAPI, BashResult } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { BashResult } from "./types.js";
 
 /**
  * Detect ?? prefix and route to agent for explanation.

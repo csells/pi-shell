@@ -4,7 +4,7 @@ import {
   highlightCode,
   getLanguageFromPath,
 } from "@mariozechner/pi-coding-agent";
-import type { BashResult } from "@mariozechner/pi-coding-agent";
+import type { BashResult } from "./types.js";
 
 /**
  * Intercept `cat <file>` and return syntax-highlighted output.
