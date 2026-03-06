@@ -33,6 +33,8 @@ comppostfuncs=( null-line exit )
 zstyle '':completion:*'' list-grouped false
 zstyle '':completion:*'' insert-tab false
 zstyle '':completion:*'' list-separator ''''
+# case-insensitive matching (macOS default filesystem is case-insensitive)
+zstyle '':completion:*'' matcher-list ''m:{a-zA-Z}={A-Za-z}''
 zmodload zsh/zutil
 
 compadd () {

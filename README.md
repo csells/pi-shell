@@ -15,14 +15,14 @@ Install the extension, and `!`/`!!` become a proper shell:
 | Before (pi today) | After (with pi-shell) |
 |---|---|
 | `!cd src` does nothing useful | `!cd src` changes cwd, footer updates |
-| `!nod` Tab → files starting with "nod" | `!nod` Tab → `node`, `nodemon` from $PATH |
 | `!git ch` Tab → files starting with "ch" | `!git ch` Tab → `checkout`, `cherry-pick` |
 | `!git checkout` Tab → files | `!git checkout` Tab → `main`, `dev` branches |
-| `!g` Tab → files starting with "g" | `!g` Tab → your aliases (`gs → git status`) |
+| `!docker` Tab → nothing useful | `!docker` Tab → `build`, `run`, `compose` |
+| `!npm` Tab → nothing useful | `!npm` Tab → `install`, `test`, `run` |
 | Aliases don't work in `!` | Your shell aliases just work |
 | Alt-tab for real shell work | Stay in pi |
 
-Pi's built-in Tab completion only knows about files. Pi Shell replaces it with context-aware completions — commands, aliases, git subcommands, branches — but only for `!`/`!!` lines. Normal pi input is untouched.
+Pi's built-in Tab only knows about files. Pi Shell delegates to your shell's own completion system (zsh or bash) — so every command that has completions in your terminal works the same way in pi. Only active for `!`/`!!` lines; normal pi input is untouched.
 
 ## How It Works
 
@@ -34,19 +34,15 @@ Pi Shell enhances the existing `!`/`!!` mechanism. It doesn't change how pi work
 
 ## Features
 
-- **Tab completion** — paths, commands, git branches, aliases
-- **cd tracking** — `!cd` updates pi's working directory and footer
+- **Tab completion** — delegates to your shell's completion system (zsh with zpty capture, bash fallback). Every command that completes in your terminal completes in pi.
+- **Case-insensitive matching** — `cd s` and `cd S` both match `src/` on macOS
+- **Backspace re-matching** — narrow too far? Backspace re-opens completions with the shorter prefix
+- **cd tracking** — `!cd`, `!pushd`, `!popd`, `!cd -` all update pi's working directory and footer
 - **Aliases** — imports your existing shell aliases automatically
-- **Command history** — persistent, searchable with Ctrl+R
+- **Command history** — persistent across sessions, up/down navigation
 - **Explain mode** — `!?? command` asks the agent to explain it
-- **Fix-on-fail** — failed command? Agent offers to diagnose
+- **Fix-on-fail** — failed `!` command? Agent offers to diagnose (skipped for `!!`)
 - **Syntax highlighting** — `!cat file.ts` with highlighted output
-
-## Design
-
-- [specs/vision.md](specs/vision.md) — what and why
-- [specs/requirements.md](specs/requirements.md) — feature requirements and resolved design questions
-- [specs/design.md](specs/design.md) — technical design with verified pi API mappings and module blueprints
 
 ## Install
 
@@ -55,11 +51,16 @@ pi install /path/to/pi-shell     # local
 pi install github.com/csells/pi-shell  # from git
 ```
 
-Then restart pi. The extension loads automatically — no flags needed.
+Then restart pi (or `/reload`). The extension loads automatically — no flags needed.
+
+## Requirements
+
+- **zsh** (preferred) — full completion support via zpty capture
+- **bash** (fallback) — command and file completions; programmable completions if bash-completion is installed
 
 ## Status
 
-✅ **Implemented** — all modules built, 141 tests passing.
+✅ **Implemented** — 94 tests passing.
 
 ## License
 

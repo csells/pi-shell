@@ -63,11 +63,12 @@ export default function piShell(pi: ExtensionAPI) {
     }
   });
 
-  // --- user_bash: main ! command handler ---
+  // --- user_bash: intercept only commands we handle specially ---
+  // For everything else, return nothing and let pi's built-in bash handle it.
   pi.on("user_bash", async (event, ctx) => {
     const command = event.command.trim();
 
-    // 1. ?? explain mode
+    // 1. ?? explain mode — don't execute, ask agent to explain
     const explainResult = handleExplain(command, pi);
     if (explainResult) {
       return { result: explainResult };
@@ -76,12 +77,11 @@ export default function piShell(pi: ExtensionAPI) {
     // 2. cat → syntax-highlighted preview
     const catResult = handleCat(command);
     if (catResult) {
-      state.history.push(command);
-      activeEditor?.addToHistory?.(`!${command}`);
+      addToHistory(command, event.excludeFromContext);
       return { result: catResult };
     }
 
-    // 3. cd / pushd / popd
+    // 3. cd / pushd / popd — must handle in-process (process.chdir)
     if (isCdCommand(command)) {
       const cdResult = resolveCD(command, state);
 
@@ -103,8 +103,7 @@ export default function piShell(pi: ExtensionAPI) {
         updateFooter(ctx);
       }
 
-      state.history.push(command);
-      activeEditor?.addToHistory?.(`!${command}`);
+      addToHistory(command, event.excludeFromContext);
 
       return {
         result: {
@@ -116,40 +115,33 @@ export default function piShell(pi: ExtensionAPI) {
       };
     }
 
-    // 4. Normal execution via user's shell with alias support.
-    //    We execute ourselves so we can inspect the exit code for fix-on-fail.
-    const shell = process.env.SHELL || "/bin/sh";
-    let output: string;
-    let exitCode: number;
+    // 4. Everything else — let pi's built-in bash handle execution.
+    //    We just record history. Fix-on-fail is handled via tool_result below.
+    addToHistory(command, event.excludeFromContext);
+    return undefined;
+  });
 
-    try {
-      const result = await pi.exec(shell, ["-ic", command], { timeout: 0 });
-      output = (result.stdout || "") + (result.stderr || "");
-      exitCode = result.code ?? 0;
-    } catch (err: any) {
-      output = err.message || "Execution error";
-      exitCode = 1;
-    }
+  // --- tool_result: fix-on-fail after pi's built-in bash runs ---
+  pi.on("tool_result", async (event, ctx) => {
+    // Only act on user_bash results with non-zero exit codes
+    if (event.toolName !== "user_bash") return;
+    if (!ctx.hasUI) return;
 
-    // Offer fix-on-fail for non-zero exit — but NOT for !! commands
-    // (requirements: "Must not interrupt !! commands")
-    if (exitCode !== 0 && ctx.hasUI && !event.excludeFromContext) {
+    // Check if it failed
+    const details = event.details as Record<string, unknown> | undefined;
+    const exitCode = details?.exitCode as number | undefined;
+    if (!exitCode || exitCode === 0) return;
+
+    // Don't interrupt !! commands
+    const excludeFromContext = details?.excludeFromContext as boolean | undefined;
+    if (excludeFromContext) return;
+
+    const command = details?.command as string | undefined;
+    const output = (event.content?.[0] as { text?: string })?.text ?? "";
+
+    if (command) {
       await offerFixOnFail(command, output, exitCode, ctx, pi);
     }
-
-    state.history.push(command);
-    // Add to editor history for up/down navigation
-    const prefix = event.excludeFromContext ? "!!" : "!";
-    activeEditor?.addToHistory?.(`${prefix}${command}`);
-
-    return {
-      result: {
-        output,
-        exitCode,
-        cancelled: false,
-        truncated: false,
-      },
-    };
   });
 
   // --- session_shutdown: persist history ---
@@ -172,7 +164,14 @@ export default function piShell(pi: ExtensionAPI) {
     };
   });
 
-  // --- Helper: update footer status and terminal title ---
+  // --- Helpers ---
+
+  function addToHistory(command: string, excludeFromContext: boolean): void {
+    state.history.push(command);
+    const prefix = excludeFromContext ? "!!" : "!";
+    activeEditor?.addToHistory?.(`${prefix}${command}`);
+  }
+
   function updateFooter(ctx: ExtensionContext): void {
     const cwd = formatCwd(process.cwd());
     const gitBranch = getGitBranch(process.cwd());

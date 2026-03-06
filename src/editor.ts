@@ -1,4 +1,5 @@
 import type { TUI, EditorTheme, AutocompleteProvider, AutocompleteItem } from "@mariozechner/pi-tui";
+import { matchesKey } from "@mariozechner/pi-tui";
 import type { KeybindingsManager } from "@mariozechner/pi-coding-agent";
 import { CustomEditor } from "@mariozechner/pi-coding-agent";
 import type { ShellAutocompleteProvider } from "./completions.js";
@@ -35,7 +36,24 @@ export class ShellEditor extends CustomEditor {
   }
 
   handleInput(data: string): void {
+    const wasShowingAutocomplete = this.isShowingAutocomplete();
     super.handleInput(data);
+
+    // After backspace: if autocomplete was just cancelled (narrowed to 0 matches)
+    // but we're still on a ! line, re-trigger so the shorter prefix gets matches.
+    // The base editor only re-triggers for / and @ contexts, not !.
+    if (!this.isShowingAutocomplete() && wasShowingAutocomplete) {
+      const isBackspace =
+        matchesKey(data, "backspace") || matchesKey(data, "shift+backspace");
+      if (isBackspace) {
+        const { line: cursorLine } = this.getCursor();
+        const line = this.getLines()[cursorLine] || "";
+        if (/^!{1,2}/.test(line)) {
+          // tryTriggerAutocomplete is private in types but exists at runtime
+          (this as any).tryTriggerAutocomplete();
+        }
+      }
+    }
   }
 }
 

@@ -1,26 +1,42 @@
 import { execSync } from "node:child_process";
 import * as path from "node:path";
-import * as url from "node:url";
 import type {
   AutocompleteItem,
   AutocompleteProvider,
 } from "@mariozechner/pi-tui";
 
+// Resolve script paths at module load time.
+// Use __dirname which jiti provides, with import.meta.url as fallback.
+declare const __dirname: string | undefined;
+const SCRIPTS_DIR = (() => {
+  if (typeof __dirname !== "undefined") return __dirname;
+  const { fileURLToPath } = require("node:url") as typeof import("node:url");
+  return path.dirname(fileURLToPath(import.meta.url));
+})();
+
+// Detect which shell completion to use: zsh if available, else bash
+const SHELL_CMD = (() => {
+  const zshScript = path.join(SCRIPTS_DIR, "shell-complete.zsh");
+  const bashScript = path.join(SCRIPTS_DIR, "shell-complete.bash");
+  try {
+    execSync("zsh --version", { stdio: "ignore", timeout: 1000 });
+    return (partial: string) =>
+      `zsh ${JSON.stringify(zshScript)} ${JSON.stringify(partial)}`;
+  } catch {
+    return (partial: string) =>
+      `bash ${JSON.stringify(bashScript)} ${JSON.stringify(partial)}`;
+  }
+})();
+
 /**
  * AutocompleteProvider for ! bash mode.
- * Delegates to the user's shell completion system (zsh via zpty capture)
- * for ALL completions — commands, subcommands, flags, branches, paths.
+ * Delegates to the user's shell completion system (zsh or bash) for
+ * ALL completions — commands, subcommands, flags, branches, paths.
  *
  * Returns null when not in bash mode, allowing the editor to fall back
  * to pi's default provider for slash commands and @ file references.
  */
 export class ShellAutocompleteProvider implements AutocompleteProvider {
-  private scriptPath: string;
-
-  constructor() {
-    const dir = path.dirname(url.fileURLToPath(import.meta.url));
-    this.scriptPath = path.join(dir, "shell-complete.zsh");
-  }
 
   getSuggestions(
     lines: string[],
@@ -82,20 +98,18 @@ export class ShellAutocompleteProvider implements AutocompleteProvider {
   }
 
   /**
-   * Call the shell's completion system via zpty capture script.
+   * Call the shell's completion system via capture script.
+   * Uses zsh (with zpty) if available, falls back to bash.
    * Returns raw completion strings, one per line.
    */
   private getShellCompletions(partial: string): string[] {
     try {
-      const output = execSync(
-        `zsh ${JSON.stringify(this.scriptPath)} ${JSON.stringify(partial)}`,
-        {
-          encoding: "utf-8",
-          timeout: 2000,
-          cwd: process.cwd(),
-          env: { ...process.env, TERM: "dumb" },
-        },
-      );
+      const output = execSync(SHELL_CMD(partial), {
+        encoding: "utf-8",
+        timeout: 2000,
+        cwd: process.cwd(),
+        stdio: ["ignore", "pipe", "pipe"],
+      });
       return output
         .split("\n")
         .map((l) => l.trim())
